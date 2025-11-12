@@ -1,0 +1,26 @@
+{
+  "commands": [
+    {
+      "action": "takeoff",
+      "params": {
+        "altitude": 100
+      }
+    },
+    {
+      "action": "speed",
+      "params": {
+        "value": 30
+      }
+    },
+    {
+      "action": "forward",
+      "params": {
+        "distance": 20000
+      }
+    },
+    {
+      "action": "land",
+      "params": {}
+    }
+  ]
+}
