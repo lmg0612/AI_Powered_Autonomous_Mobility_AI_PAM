@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>FastAPI + Whisper 음성 인식</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main>
+        <header>
+            <h1>실시간 음성 인식 데모</h1>
+            <p>마이크로 음성을 녹음하거나 음성 파일을 업로드하면 Whisper 모델이 텍스트로 변환합니다.</p>
+        </header>
+
+        <section class="controls">
+            <div class="record-buttons">
+                <button id="startBtn" type="button">🎤 녹음 시작</button>
+                <button id="stopBtn" type="button" disabled>⏹ 녹음 종료</button>
+            </div>
+            <p id="status">마이크 접근 권한을 허용해 주세요.</p>
+        </section>
+
+        <section class="upload">
+            <label for="audioFile">또는 파일 업로드</label>
+            <input id="audioFile" type="file" accept="audio/*">
+        </section>
+
+        <section class="result">
+            <h2>인식 결과</h2>
+            <pre id="resultText">결과가 여기 표시됩니다.</pre>
+        </section>
+
+        <section class="command">
+            <h2>드론 명령문</h2>
+            <pre id="commandText">생성된 명령문이 여기 표시됩니다.</pre>
+        </section>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+</body>
+</html>
