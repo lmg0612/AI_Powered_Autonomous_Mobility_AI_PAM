@@ -1,0 +1,16 @@
+{
+  "commands": [
+    {
+      "action": "forward",
+      "params": {
+        "distance": 500
+      }
+    },
+    {
+      "action": "speed",
+      "params": {
+        "value": 30
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "intent": "reconnaissance",
+  "target_drone": "drone_1",
+  "destination": {
+    "type": "named_zone",
+    "value": "A-1"
+  },
+  "primary_mission": "detect_person",
+  "target_attributes": {
+    "clothing_color": "red",
+    "affiliation": "friend",
+    "status": "unknown"
+  },
+  "secondary_mission": "report_with_media"
+}

@@ -1,0 +1,15 @@
+{
+  "intent": "unknown",
+  "target_drone": "unknown",
+  "destination": {
+    "type": "unknown",
+    "value": "unknown"
+  },
+  "primary_mission": "unknown",
+  "target_attributes": {
+    "clothing_color": "unknown",
+    "affiliation": "unknown",
+    "status": "unknown"
+  },
+  "secondary_mission": "unknown"
+}
