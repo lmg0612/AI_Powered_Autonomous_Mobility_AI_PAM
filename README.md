@@ -9,6 +9,23 @@
 음성 입력 → STT(음성 인식) → LLM(의도 해석 → JSON 명령) → 명령 파서 → DroneKit-SITL / Tello 실행
 ```
 
+## 핵심 요약
+
+- 음성 인식 엔진 3종(Google SR · Vosk · Whisper)을 같은 드론 명령으로 비교해 **정확도와 응답 시간의 차이**를 확인했습니다.
+- 한국어 LLM 3종을 **LoRA로 파인튜닝**해 한국어 명령을 Tello SDK 명령어로 바꾸는 성능을 비교했습니다.
+- 시뮬레이터 연동에서는 Gemini에 **JSON 배열만 출력하도록 한 프롬프트**를 주고, 파서가 그 JSON을 DroneKit 제어 함수로 연결해 SITL 드론을 움직였습니다.
+
+## 구현 포인트
+
+| 영역 | 구현 내용 | 관련 파일 |
+|---|---|---|
+| STT 비교 | 엔진별 녹음·인식 스크립트, 명령어 3개 실험 결과와 화면 기록 | `STT/test_*.py`, `STT/STT-report/` |
+| 파인튜닝 | 한국어 명령 ↔ Tello 명령어 데이터셋 118쌍, SFTTrainer + LoRA | `LLM/` |
+| 명령 생성 | "command·parameters 객체의 JSON 배열만 출력" 규칙과 예시를 담은 프롬프트 | `SITL/prompts.py`, `SITL/llm_interface.py` |
+| 실행 | JSON 파싱 → 기능별 제어 함수 호출 → DroneKit으로 SITL 연결 | `SITL/command_parser.py`, `SITL/drone_control.py` |
+| 음성 API | 음성 파일 업로드 → Whisper 전사 → Gemini 명령 생성 → 실행 상태·기록 관리 | `api/` |
+| 임무 계획 | 자연어 임무 → PDDL problem·plan 생성과 검사 | `NLPDDL/` |
+
 ## 진행 내용
 
 ### 1. STT 엔진 비교 — `STT/`
@@ -23,9 +40,10 @@
 정확도·응답 시간·네트워크 의존성·보안성을 함께 고려해야 한다는 결론을 냈고, 실험 과정은 [`STT/STT-report`](STT/STT-report)에 정리했습니다.
 
 ### 2. 한국어 LLM 파인튜닝 비교 — `LLM/`
-자연어 명령과 Tello 드론 명령(JSON) 쌍으로 데이터셋(`tello_dataset.json`)을 만들고, 한국어 LLM 3종을 **LoRA(PEFT)** 로 파인튜닝해 JSON 명령을 얼마나 정확히 만드는지 비교했습니다.
+한국어 명령과 Tello SDK 명령어를 짝지은 데이터셋 118쌍(`tello_dataset.json`, 예: "올라가 20센티미터" → `up 20`)을 만들고, 한국어 LLM 3종을 **LoRA(PEFT)** 로 파인튜닝해 명령어를 얼마나 정확히 만드는지 비교했습니다.
 - `beomi/Yi-Ko-6B` · `yanolja/KoSOLAR-10.7B-v0.2` · `EleutherAI/polyglot-ko-5.8b`
-- 학습·추론 과정: `LLM/Tello_FineTuning_and_Inference-다중쿼리.ipynb`
+- 설정: TRL `SFTTrainer`, LoRA r=64 · alpha=16, fp16(양자화 없음), 배치 4, 학습률 2e-4, 1 epoch
+- 여러 문장을 넣어 출력을 비교하는 정성 평가로 진행했고, 정량 수치는 남기지 않았습니다. 과정은 `LLM/Tello_FineTuning_and_Inference-다중쿼리.ipynb`에 있습니다.
 
 ### 3. 시뮬레이터 연동 — `SITL/`
 LLM 응답(JSON)을 `command_parser.py`가 해석하고, `drone_control.py`가 DroneKit으로 SITL 시뮬레이터의 드론을 움직입니다. `SITL/tello/`는 같은 구조를 Tello 드론 명령에 맞춘 버전입니다.
