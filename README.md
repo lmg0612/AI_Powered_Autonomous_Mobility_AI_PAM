@@ -1,224 +1,72 @@
-# LLM-Enabled Drone GCS
-_A Ground Control Station Project with Integrated STT, LLM, and Vision Metadata for Defense Applications_
+# LLM 기반 음성 제어 드론 GCS
 
-## Project Overview
+> 음성 명령을 STT로 받아 LLM이 드론 명령(JSON)으로 바꾸고, 시뮬레이터의 드론이 실행하는 지상 관제(GCS) 연구 프로젝트
 
-This repository details the development of a next-generation Ground Control Station (GCS) for drones, integrating **Speech-to-Text (STT)**, **Large Language Models (LLM)**, and **vision-based metadata processing**. The system is engineered for **defense applications**, prioritizing secure, robust, and intelligent drone operations through natural language commands and automated mission reporting.
-
-## System Architecture
-
-### End-to-End Workflow
+## 개요
+드론을 조작하려면 조종기나 전용 GCS 화면을 익혀야 합니다. 이 프로젝트는 "이륙하고 고도 10미터 유지"처럼 **말로 내린 명령을 드론이 실행할 수 있는 구조화된 명령으로 바꾸는 파이프라인**을 단계별로 실험하고 연결했습니다.
 
 ```
-[Speech Input]
-      ↓
-[STT Engine]
-      ↓
-[LLM (Intent Parsing)]
-      ↓
-[Mission/Event Generation]
-      ↓
-[GCS/SDK Execution]
-      ↓
-[Vision Encoder (YOLOv8)]
-      ↓
-[Metadata Transmission]
-      ↓
-[LLM Report Generation]
+음성 입력 → STT(음성 인식) → LLM(의도 해석 → JSON 명령) → 명령 파서 → DroneKit-SITL / Tello 실행
 ```
 
-## Hardware Platform
+## 진행 내용
 
-### Drone Platform: DJI Matrice 400 (M400)
+### 1. STT 엔진 비교 — `STT/`
+드론 명령 3개("이륙해", "이륙하고 고도 10미터 유지", "앞으로 100미터 전진")로 세 가지 음성 인식 방식을 비교했습니다.
 
-- **Type:** Enterprise-grade quadcopter
-- **Flight Time:** Up to 59 minutes
-- **Payload Capacity:** Up to 6 kg
-- **Sensors:** LiDAR, mmWave radar, fisheye vision, RTK positioning
-- **Video Transmission:** Up to 40 km with O4 Enterprise Enhanced Video Transmission
-- **Multi-Payload:** Supports up to 7 simultaneous payloads
-- **Obstacle Avoidance:** Advanced, including power-line and terrain detection
-- **Use Cases:** Defense, inspection, mapping, search & rescue, exploration[1][2][3]
+| 엔진 | 방식 | 확인한 결과 |
+|---|---|---|
+| Google Speech Recognition | 클라우드 | 녹음 길이 제한으로 문장 끝이 잘리는 문제 → 녹음 길이를 늘리고, sounddevice로 받은 음성을 전처리해 넣는 방식으로 바꿔 인식률 개선 (처리 시간은 약간 증가) |
+| Vosk | 오프라인 | 한국어 기본 모델의 인식률이 세 방식 중 가장 낮음 |
+| Whisper | 로컬 | base는 Vosk와 비슷한 수준, large-v3는 가장 높은 인식률을 보였지만 녹음 후 출력까지 약 20초 걸림 |
 
-### Onboard Computing Options
+정확도·응답 시간·네트워크 의존성·보안성을 함께 고려해야 한다는 결론을 냈고, 실험 과정은 [`STT/STT-report`](STT/STT-report)에 정리했습니다.
 
-| Model                   | CPU/GPU Specs                                             | AI Performance | Notable Features                |
-|-------------------------|----------------------------------------------------------|----------------|----------------------------------|
-| NVIDIA Jetson Nano      | Quad-core ARM Cortex-A57, 128-core Maxwell GPU, 4GB RAM  | 472 GFLOPS     | Entry-level, low power           |
-| Jetson Xavier NX        | 6-core ARM v8.2, 384-core Volta GPU, 8GB RAM             | 21 TOPS        | Multi-sensor, strong AI support  |
-| Jetson Orin Nano        | 6-core Cortex-A78AE, up to 1024-core Ampere GPU, 8GB RAM | 40 TOPS        | High performance, compact        |
-| Raspberry Pi 5          | Quad-core Cortex-A76, up to 8GB RAM                      | -              | Affordable, broad community      |
-| Khadas Edge2            | 8-core RK3588S, Mali-G610 GPU, up to 16GB RAM            | 6 TOPS         | 8K video, Wi-Fi 6, AI-ready      |[4][5][6][7][8][9][10][11][12][13]
+### 2. 한국어 LLM 파인튜닝 비교 — `LLM/`
+자연어 명령과 Tello 드론 명령(JSON) 쌍으로 데이터셋(`tello_dataset.json`)을 만들고, 한국어 LLM 3종을 **LoRA(PEFT)** 로 파인튜닝해 JSON 명령을 얼마나 정확히 만드는지 비교했습니다.
+- `beomi/Yi-Ko-6B` · `yanolja/KoSOLAR-10.7B-v0.2` · `EleutherAI/polyglot-ko-5.8b`
+- 학습·추론 과정: `LLM/Tello_FineTuning_and_Inference-다중쿼리.ipynb`
 
-## STT (Speech-to-Text) Component
+### 3. 시뮬레이터 연동 — `SITL/`
+LLM 응답(JSON)을 `command_parser.py`가 해석하고, `drone_control.py`가 DroneKit으로 SITL 시뮬레이터의 드론을 움직입니다. `SITL/tello/`는 같은 구조를 Tello 드론 명령에 맞춘 버전입니다.
 
-In this project, three leading STT libraries were benchmarked to find the optimal solution for recognizing voice commands for drone control. The research focused on evaluating accuracy, response time, and offline capabilities.
-
-- **Google Speech Recognition:**
-    - **Features:** As a cloud-based service, it demonstrates high accuracy for Korean language recognition but requires a mandatory internet connection. It excels in batch processing, and security considerations are necessary as voice data is sent to external servers.
-    - **Experiment Results:** The highest recognition rate was achieved by preprocessing audio with `sounddevice` before sending it to the API, though this slightly increased processing time.
-
-- **Vosk:**
-    - **Features:** A fully offline STT engine that runs locally, ensuring fast response times and high security. It is optimized for real-time streaming.
-    - **Experiment Results:** The default Korean model showed insufficient performance, resulting in the lowest recognition rate among the three libraries. It is concluded that domain-specific model fine-tuning is necessary.
-
-- **OpenAI Whisper:**
-    - **Features:** A state-of-the-art deep learning-based model. The `large-v3` model was used for this experiment, which can achieve high accuracy with GPU acceleration in a local environment.
-    - **Experiment Results:** It delivered the best recognition accuracy. However, a significant drawback was the ~20 second delay from voice recording to text output, attributed to its high computational demand. Response speed improvements are needed for real-time control applications.
-
-## LLM Component
-
-The core objective of the LLM component is to **transform natural language user commands into structured JSON format** that the drone can execute. To achieve this, a custom dataset for Tello drone commands was built, and several Korean-language LLMs were fine-tuned using **PEFT (LoRA)** to compare their performance.
-
-### Improvement Goals and Research
-- **Build Tello Command Dataset (`tello_dataset.json`):** A dataset consisting of pairs of natural language Korean commands and their corresponding Tello drone commands (in JSON) was created for fine-tuning.
-- **Fine-tune and Compare Korean LLMs:** The following models were fine-tuned using LoRA to evaluate their ability to generate correct JSON commands.
-    - `beomi/Yi-Ko-6B`
-    - `yanolja/KoSOLAR-10.7B-v0.2`
-    - `EleutherAI/polyglot-ko-5.8b`
-- **Inference Performance Analysis:** A qualitative analysis was performed to see how accurately each fine-tuned model converts complex or varied natural language commands into JSON. Detailed comparison results are available in the notebook (`Tello_FineTuning_and_Inference-다중쿼리.ipynb`).
-
-### Requirements
-- **Hardware:** A high-performance GPU such as an NVIDIA A100 with a CUDA environment.
-- **Key Libraries:**
-    - `torch`, `transformers`, `datasets`
-    - `peft` (Parameter-Efficient Fine-Tuning)
-    - `trl` (Transformer Reinforcement Learning)
-    - `accelerate`
-
-## SITL (Software-in-the-Loop) Component
-
-The SITL component aims to execute the commands translated by the LLM in a realistic drone simulation environment. A user gives a command in natural language, and the system interprets and executes it on a virtual drone in the DroneKit-SITL environment.
-
-### Implementation Goal
-- Translate natural language commands into JSON-formatted commands via the LLM interface (`llm_interface.py`).
-- The `command_parser.py` module parses the JSON command and invokes the corresponding control function defined in `drone_control.py`.
-- The system communicates with the SITL simulator using the DroneKit library to monitor the drone's state and execute commands.
-
-### Execution Guide
-1. **Run the SITL Simulator:** Start the virtual drone using Mission Planner or the `dronekit-sitl` command.
-   ```bash
-   dronekit-sitl copter --home=37.5665,126.9780,0,180
-   ```
-2. **Connect MAVProxy:** Connect MAVProxy to the SITL instance to act as a GCS.
-   ```bash
-   mavproxy.py --master tcp:127.0.0.1:5760 --sitl 127.0.0.1:5501 --out 127.0.0.1:14550 --out 127.0.0.1:14551
-   ```
-3. **Set API Key:** Enter your Google API key in the `SITL/config.py` file.
-4. **Run the Main Script:** Execute the main script from the `SITL` directory and enter natural language commands at the prompt.
-   ```bash
-   python main.py
-   ```
-   **Example Commands:**
-   - `Connect to the drone.`
-   - `Arm and take off to 15 meters.`
-   - `Move 50 meters north.`
-   - `Land and disconnect.`
-
-## Vision Encoder
-
-- **YOLOv8 Integration:**
-  Real-time object detection, multi-scale, lightweight, and efficient for edge inference.
-  Outputs structured metadata for mission reporting and situational awareness[14][15].
-
-#### Example Metadata Format
+### 4. 음성 명령 API — `api/`, `DroneAPI/`
+FastAPI 서버에서 음성 파일을 Whisper로 전사하고, Gemini로 드론 명령 JSON을 생성한 뒤 명령 실행 상태와 기록을 관리합니다. 웹 화면에서 녹음부터 명령 생성까지 확인할 수 있습니다.
 
 ```json
-{
-  "timestamp": "2025-07-14T14:22:00Z",
-  "location": {"lat": 37.12345, "lon": 127.12345, "alt": 50},
-  "objects": [
-    {"type": "person", "confidence": 0.94, "bbox": [120, 80, 180, 200]},
-    {"type": "vehicle", "confidence": 0.88, "bbox": [300, 150, 400, 250]}
-  ],
-  "image_id": "frame_000123"
-}
+[{"command": "takeoff", "parameters": {}},
+ {"command": "forward", "parameters": {"distance": 100}},
+ {"command": "cw", "parameters": {"degree": 90}},
+ {"command": "land", "parameters": {}}]
 ```
 
-## Example Voice Command to SDK Command Mapping
+### 5. 임무 계획(PDDL) 생성 실험 — `NLPDDL/`
+자연어 임무 설명을 LLM으로 PDDL problem·plan 파일로 바꿔, 여러 단계로 이뤄진 임무를 계획 형태로 표현하는 방법을 실험했습니다.
 
-| Example Command                                  | LLM Output (Structured)         | DJI SDK/ROS Command Example              | Description                           |
-|--------------------------------------------------|----------------------------------|------------------------------------------|---------------------------------------|
-| Take off.                                        | CMD: TAKEOFF                    | `monitoredTakeoff()`                     | Take off                              |
-| Recon waypoints A, B, and C.                     | CMD: GOTO_WAYPOINTS A,B,C       | `goToWaypoint('A')`, ...                 | Recon at waypoints A, B, C            |
-| Find a person while maintaining 50 meters.       | CMD: HOLD_ALT 50; DETECT PERSON | `holdAltitude(50)`, `detectObject('person')` | Maintain 50m, detect person           |
-| Go to the landing point.                         | CMD: GOTO_LANDPOINT             | `goToLandPoint()`                        | Move to landing point                 |
-| Patrol the designated area.                      | CMD: PATROL AREA                | `patrolArea(area_id)`                     | Patrol designated area                |
-| Track the vehicle.                               | CMD: TRACK VEHICLE              | `trackObject('vehicle')`                  | Track the vehicle                     |
+## 구조
+```
+STT/                     STT 엔진별 테스트 코드와 비교 보고서
+LLM/                     Tello 명령 데이터셋, LoRA 파인튜닝·추론 노트북
+SITL/                    자연어 → JSON → DroneKit-SITL 제어
+api/, DroneAPI/          FastAPI 음성 명령 API, 명령 실행 관리
+NLPDDL/                  자연어 → PDDL 임무 계획 생성
+integrated-full-project/ 통합 UI 버전
+Papers/                  참고한 LLM·드론 관련 논문
+```
 
-## On-Premises Management Software
+## 기술 스택
+Python · Whisper · Vosk · SpeechRecognition · Hugging Face Transformers · PEFT(LoRA) · TRL · DroneKit-SITL · MAVProxy · FastAPI · Google Gemini API · PDDL
 
-The system leverages **DJI FlightHub 2 On-Premises** for secure, scalable fleet management:
+## 실행 (SITL)
+```bash
+pip install -r SITL/requirements.txt
+export GOOGLE_API_KEY=<your_key>   # api/ 서버는 .env.example을 .env로 복사해 사용
+dronekit-sitl copter --home=37.5665,126.9780,0,180
+mavproxy.py --master tcp:127.0.0.1:5760 --out 127.0.0.1:14550
+cd SITL && python main.py       # 프롬프트에 자연어 명령 입력 (예: "이륙해")
+```
 
-| Package Name                                                        | Description                                  |
-|---------------------------------------------------------------------|----------------------------------------------|
-| FlightHub 2 On-Premises Version Device Expansion (1 Device)         | Add 1 device to on-premises management       |
-| FlightHub 2 On-Premises Version Basic Package (1 Device)            | Basic on-premises management for 1 device    |
-| FlightHub 2 On-Premises Version Upgraded Validity (1Year/1Device)   | 1-year validity extension for 1 device       |
-| FlightHub 2 On-Premises Version Device Expansion (5 Devices)        | Add 5 devices to on-premises management      |
-
-- **Key Features:**
-  - OpenAPI for secondary development
-  - MQTT Bridge for efficient, secure message delivery
-  - Modular frontend components for rapid integration[16]
-
-## Getting Started
-
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/yourorg/llm-drone-gcs.git
-   ```
-
-2. **Install Dependencies**
-   - See `requirements.txt` in each subdirectory (`STT`, `LLM`, `SITL`).
-
-3. **Configure Models & API Keys**
-   - Download/setup Korean models for STT/LLM as needed.
-   - Set up your API keys in the configuration files.
-   - Ensure ffmpeg is in your PATH for Whisper.
-
-4. **Run Example Code**
-   - See `/STT/`, `/LLM/`, `/SITL/` directories for individual component scripts and usage instructions.
-
-## Defense-Oriented Design
-
-- **Mission-Critical Reliability:**
-  All modules are validated in operational scenarios for robustness.
-- **Offline and Secure Operation:**
-  Local execution ensures privacy and compliance.
-- **Scalable and Modular:**
-  Adaptable for various drone platforms and mission profiles.
-
-## Key References
-
-- [TypeFly: Flying Drones with Large Language Model](https://arxiv.org/abs/2312.14950)
-- [LLM-DaaS: LLM-driven Drone-as-a-Service Operations from Text User Requests](https://arxiv.org/abs/2412.11672)
-- [ROS-LLM: A ROS framework for embodied AI with task feedback and structured reasoning](https://arxiv.org/abs/2406.19741)
-- [LLM-Land: Large Language Models for Context-Aware Drone Landing](https://arxiv.org/abs/2505.06399)
-- [UAV-VLA: Vision-Language-Action System for Large Scale Aerial Mission Generation](https://arxiv.org/abs/2501.05014)
-- [KIT-19: Korean Instruction Dataset for LLM Fine-Tuning](https://arxiv.org/html/2403.16444v1)
-
-## Contact
-
-For collaboration or questions, please contact the maintainer at `your.email@domain.com`.
-
-[1] https://enterprise.dji.com/matrice-400
-[2] https://www.dji.com/media-center/announcements/dji-release-matrice-400
-[3] https://hp-drones.com/en/dji-matrice-400-power-precision-and-efficiency-at-the-peak-of-drone-technology/
-[4] https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-nano/product-development/
-[5] https://www.waveshare.com/jetson-xavier-nx.htm
-[6] https://connecttech.com/product/nvidia-jetson-orin-nano-4gb-module/
-[7] https://thepihut.com/products/raspberry-pi-5
-[8] https://techexplorations.com/blog/review/khadas-edge2-an-ai-ready-single-board-computer-powerhouse
-[9] https://www.macnica.co.jp/en/business/semiconductor/manufacturers/nvidia/products/134045/
-[10] https://www.macnica.co.jp/en/business/semiconductor/manufacturers/nvidia/products/134047/
-[11] https://crg.co.il/catalog/jetson-orin-nano-series-4gb-8gb/
-[12] https://www.waveshare.com/raspberry-pi-5.htm
-[13] https://www.khadas.com/edge2
-[14] https://encord.com/blog/yolo-object-detection-guide/
-[15] https://docs.ultralytics.com/ko/tasks/detect/
-[16] https://enterprise-insights.dji.com/blog/dji-flighthub-2-on-premises-officially-released
-[17] https://enterprise.dji.com/matrice-400/specs
-[18] https://enterprise.dji.com/kr/matrice-400/specs
-[19] https://www.youtube.com/watch?v=Cc7UMhmshpI
-[20] https://www.heliguy.com/blogs/posts/dji-flighthub-2-on-premises-enhanced-drone-data-security/
+## 참고
+- API 키는 저장소에 넣지 않고 환경 변수(`GOOGLE_API_KEY`)로 읽습니다.
+- LoRA 파인튜닝에는 A100급 GPU와 CUDA 환경이 필요합니다.
+- 참고 논문: TypeFly, LLM-DaaS, ROS-LLM, LLM-Land, UAV-VLA 등 (`Papers/`)
